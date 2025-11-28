@@ -2,7 +2,7 @@
 import { Router } from "express";
 import {
   registerUser,
-  getUserProfile,
+  getUserByUid,
   updateUserProfile,
   deleteUser,
   sendPasswordReset,
@@ -11,21 +11,21 @@ import {
 const router = Router();
 
 /**
- * /api/users routes
- *
- * POST   /register         -> registerUser
- * GET    /:uid             -> getUserProfile
- * PUT    /update/:uid      -> updateUserProfile
- * DELETE /delete/:uid      -> deleteUser
- * POST   /reset-password   -> sendPasswordReset
+ * Base: /api/users
  */
-router.post("/register", registerUser);
-router.post("/reset-password", sendPasswordReset);
 
+// Crear/asegurar perfil en Firestore (lo llamas después de registrarte en Firebase Auth)
+router.post("/register", registerUser);
+
+// Perfil (lo que tu frontend está intentando: /api/users/:uid)
+router.get("/:uid", getUserByUid);
+router.put("/:uid", updateUserProfile);
+router.delete("/:uid", deleteUser);
+
+// Compatibilidad con tus rutas antiguas (por si aún las usas en algún lado)
 router.put("/update/:uid", updateUserProfile);
 router.delete("/delete/:uid", deleteUser);
 
-// OJO: dejar esta al final para que no choque con rutas tipo /register
-router.get("/:uid", getUserProfile);
+router.post("/reset-password", sendPasswordReset);
 
 export default router;
