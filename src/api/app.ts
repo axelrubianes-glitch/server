@@ -19,13 +19,12 @@ const app = express();
  *
  * @module app
  */
-app.use(
-  cors({
-    origin: "*",
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true,
-  })
-);
+app.use(cors({
+  origin: true,
+  methods: ["GET","POST","PUT","DELETE"],
+  credentials: true,
+}));
+
 
 app.use(cors());
 app.use(express.json());

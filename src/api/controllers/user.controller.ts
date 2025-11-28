@@ -1,99 +1,190 @@
 // server/src/api/controllers/user.controller.ts
-import { Request, Response } from "express";
-import { auth } from "../firebase/admin";
+import type { Request, Response } from "express";
+import { auth, db } from "../firebase/admin";
+
+type UserDoc = {
+  uid: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  age?: number | null;
+  displayName?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+const usersCol = db.collection("users");
+
+function nowISO() {
+  return new Date().toISOString();
+}
+
+function toNumberOrNull(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
 
 /**
- * Register or update a user record using Firebase Admin Auth.
- * Expects `uid`, `email` and optional `name` in the request body.
- *
- * @param {Request} req - Express request object
- * @param {Response} res - Express response object
- * @returns {Promise<Response>} JSON result or error
+ * POST /api/users/register
+ * Crea/actualiza el documento del usuario en Firestore (y opcionalmente displayName en Auth)
  */
-export const registerUser = async (req: Request, res: Response) => {
+export async function registerUser(req: Request, res: Response) {
   try {
-    const { uid, email, name } = req.body;
+    const { uid, email, firstName, lastName, age } = req.body ?? {};
 
-    if (!uid || !email) {
-      return res.status(400).json({ message: "UID and email are required." });
+    if (!uid || typeof uid !== "string") {
+      return res.status(400).json({ message: "uid is required" });
     }
 
-    await auth.updateUser(uid, {
-      displayName: name || "",
-    });
+    const ageNum = toNumberOrNull(age);
+    const displayName =
+      [firstName, lastName].filter(Boolean).join(" ").trim() || undefined;
 
-    return res.json({ message: "User registered successfully." });
-  } catch (error) {
-    console.error("[REGISTER ERROR]", error);
-    return res.status(500).json({ message: "Internal server error." });
-  }
-};
+    const payload: UserDoc = {
+      uid,
+      email,
+      firstName,
+      lastName,
+      age: ageNum,
+      displayName,
+      createdAt: nowISO(),
+      updatedAt: nowISO(),
+    };
 
-/**
- * Update basic profile fields for a user.
- * Path param: :uid
- * Body: { displayName?: string, photoURL?: string }
- *
- * @param {Request} req
- * @param {Response} res
- */
-export const updateUserProfile = async (req: Request, res: Response) => {
-  try {
-    const { uid } = req.params;
-    const { displayName, photoURL } = req.body;
+    await usersCol.doc(uid).set(payload, { merge: true });
 
-    await auth.updateUser(uid, { displayName, photoURL });
-
-    return res.json({ message: "Profile updated." });
-  } catch (error) {
-    console.error("[UPDATE ERROR]", error);
-    return res.status(500).json({ message: "Internal server error." });
-  }
-};
-
-/**
- * Delete a user by UID (Firebase Auth).
- * Path param: :uid
- *
- * @param {Request} req
- * @param {Response} res
- */
-export const deleteUser = async (req: Request, res: Response) => {
-  try {
-    const { uid } = req.params;
-
-    await auth.deleteUser(uid);
-
-    return res.json({ message: "User deleted successfully." });
-  } catch (error) {
-    console.error("[DELETE ERROR]", error);
-    return res.status(500).json({ message: "Internal server error." });
-  }
-};
-
-/**
- * Generate a password reset link for an email using Firebase Admin.
- * Expects `{ email }` in the request body.
- *
- * @param {Request} req
- * @param {Response} res
- */
-export const sendPasswordReset = async (req: Request, res: Response) => {
-  try {
-    const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({ message: "Email is required." });
+    // Si el usuario ya existe en Firebase Auth, actualiza displayName (no es obligatorio)
+    if (displayName) {
+      try {
+        await auth.updateUser(uid, { displayName });
+      } catch {
+        // Si aún no existe en Auth o falla, no tumbar el registro
+      }
     }
 
-    const resetLink = await auth.generatePasswordResetLink(email);
-
-    return res.json({
-      message: "Password reset link generated.",
-      resetLink,
+    return res.status(201).json({ message: "User registered", user: payload });
+  } catch (err: any) {
+    return res.status(500).json({
+      message: "Error registering user",
+      error: err?.message ?? String(err),
     });
-  } catch (error) {
-    console.error("[RESET PASSWORD ERROR]", error);
-    return res.status(500).json({ message: "Internal server error." });
   }
-};
+}
+
+/**
+ * GET /api/users/:uid
+ * Devuelve el perfil del usuario desde Firestore.
+ * Si no existe el doc, responde 404 (esto es lo que te estaba pasando).
+ */
+export async function getUserProfile(req: Request, res: Response) {
+  try {
+    const { uid } = req.params;
+
+    if (!uid) return res.status(400).json({ message: "uid is required" });
+
+    const snap = await usersCol.doc(uid).get();
+
+    if (!snap.exists) {
+      return res.status(404).json({ message: "User profile not found" });
+    }
+
+    return res.status(200).json({ user: snap.data() });
+  } catch (err: any) {
+    return res.status(500).json({
+      message: "Error loading user profile",
+      error: err?.message ?? String(err),
+    });
+  }
+}
+
+/**
+ * PUT /api/users/update/:uid
+ * Actualiza datos del perfil en Firestore (y displayName en Auth).
+ */
+export async function updateUserProfile(req: Request, res: Response) {
+  try {
+    const { uid } = req.params;
+    const { firstName, lastName, age, email } = req.body ?? {};
+
+    if (!uid) return res.status(400).json({ message: "uid is required" });
+
+    const ageNum = toNumberOrNull(age);
+    const displayName =
+      [firstName, lastName].filter(Boolean).join(" ").trim() || undefined;
+
+    const updates: Partial<UserDoc> = {
+      firstName,
+      lastName,
+      email,
+      age: ageNum,
+      displayName,
+      updatedAt: nowISO(),
+    };
+
+    await usersCol.doc(uid).set(updates, { merge: true });
+
+    if (displayName || email) {
+      try {
+        await auth.updateUser(uid, {
+          displayName: displayName,
+          email: typeof email === "string" && email ? email : undefined,
+        });
+      } catch {
+        // No rompas la actualización si Auth falla
+      }
+    }
+
+    return res.status(200).json({ message: "Profile updated", updates });
+  } catch (err: any) {
+    return res.status(500).json({
+      message: "Error updating profile",
+      error: err?.message ?? String(err),
+    });
+  }
+}
+
+/**
+ * DELETE /api/users/delete/:uid
+ * Borra usuario de Firebase Auth y su doc en Firestore
+ */
+export async function deleteUser(req: Request, res: Response) {
+  try {
+    const { uid } = req.params;
+    if (!uid) return res.status(400).json({ message: "uid is required" });
+
+    // Firestore doc
+    await usersCol.doc(uid).delete().catch(() => {});
+
+    // Auth user
+    await auth.deleteUser(uid).catch(() => {});
+
+    return res.status(200).json({ message: "User deleted" });
+  } catch (err: any) {
+    return res.status(500).json({
+      message: "Error deleting user",
+      error: err?.message ?? String(err),
+    });
+  }
+}
+
+/**
+ * POST /api/users/reset-password
+ * Genera link de reseteo (normalmente se envía por email desde un servicio)
+ */
+export async function sendPasswordReset(req: Request, res: Response) {
+  try {
+    const { email } = req.body ?? {};
+    if (!email || typeof email !== "string") {
+      return res.status(400).json({ message: "email is required" });
+    }
+
+    const link = await auth.generatePasswordResetLink(email);
+    return res.status(200).json({ message: "Reset link generated", link });
+  } catch (err: any) {
+    return res.status(500).json({
+      message: "Error generating reset link",
+      error: err?.message ?? String(err),
+    });
+  }
+}

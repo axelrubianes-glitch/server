@@ -2,6 +2,7 @@
 import { Router } from "express";
 import {
   registerUser,
+  getUserProfile,
   updateUserProfile,
   deleteUser,
   sendPasswordReset,
@@ -12,14 +13,19 @@ const router = Router();
 /**
  * /api/users routes
  *
- * POST /register         -> registerUser
- * PUT  /update/:uid      -> updateUserProfile
- * DELETE /delete/:uid    -> deleteUser
- * POST /reset-password   -> sendPasswordReset
+ * POST   /register         -> registerUser
+ * GET    /:uid             -> getUserProfile
+ * PUT    /update/:uid      -> updateUserProfile
+ * DELETE /delete/:uid      -> deleteUser
+ * POST   /reset-password   -> sendPasswordReset
  */
 router.post("/register", registerUser);
+router.post("/reset-password", sendPasswordReset);
+
 router.put("/update/:uid", updateUserProfile);
 router.delete("/delete/:uid", deleteUser);
-router.post("/reset-password", sendPasswordReset);
+
+// OJO: dejar esta al final para que no choque con rutas tipo /register
+router.get("/:uid", getUserProfile);
 
 export default router;
