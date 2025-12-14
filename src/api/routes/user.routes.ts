@@ -1,31 +1,24 @@
-// server/src/api/routes/user.routes.ts
 import { Router } from "express";
 import {
   registerUser,
-  getUserByUid,
   updateUserProfile,
   deleteUser,
   sendPasswordReset,
+  getUserByUid,
 } from "../controllers/user.controller";
+import { requireAuth } from "../middlewares/requireAuth";
 
 const router = Router();
 
-/**
- * Base: /api/users
- */
-
-// Crear/asegurar perfil en Firestore (lo llamas después de registrarte en Firebase Auth)
+// Lo que ya te funciona
 router.post("/register", registerUser);
-
-// Perfil (lo que tu frontend está intentando: /api/users/:uid)
-router.get("/:uid", getUserByUid);
-router.put("/:uid", updateUserProfile);
-router.delete("/:uid", deleteUser);
-
-// Compatibilidad con tus rutas antiguas (por si aún las usas en algún lado)
 router.put("/update/:uid", updateUserProfile);
-router.delete("/delete/:uid", deleteUser);
-
 router.post("/reset-password", sendPasswordReset);
+
+// LO QUE TE FALTABA PARA PERFIL (GET por uid)
+router.get("/:uid", getUserByUid);
+
+// LO QUE TE FALTABA PARA ELIMINAR (DELETE protegido con token)
+router.delete("/:uid", requireAuth, deleteUser);
 
 export default router;
